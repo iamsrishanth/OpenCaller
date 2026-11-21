@@ -1,0 +1,20 @@
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Private credentials and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# Native build outputs
+.cxx/
+externalNativeBuild/
