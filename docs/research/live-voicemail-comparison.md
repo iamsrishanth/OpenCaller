@@ -17,4 +17,4 @@ This comparison summarizes vendor support documentation. It describes SIM-call v
 
 ## OpenCaller verification status
 
-This is a documentation-only comparison. OpenCaller is still a baseline scaffold: no voicemail greeting, live transcription, mid-message pickup, saved-message inbox, or offline delivery behavior has been verified on a handset or SIP endpoint. No Galaxy or iPhone behavior was tested as part of this review. These vendor descriptions are not evidence that OpenCaller currently implements the same behavior.
+This is a documentation-only vendor comparison. OpenCaller currently has a SIM dialer slice, but its optional SIP calling line and voicemail service are not connected to the Android app. No voicemail greeting, live transcription, mid-message pickup, saved-message inbox, or offline delivery behavior has been verified on OpenCaller. No Galaxy or iPhone behavior was tested as part of this review. These vendor descriptions are not evidence that OpenCaller currently implements the same behavior.
