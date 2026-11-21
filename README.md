@@ -14,9 +14,10 @@ The current app does not yet implement an Android SIP line, two-sided recording,
 
 Checked on **2026-11-22**:
 
-- Moto G57 Power, Android 17 / API 37: debug APK installed and launched; the update screen reached both live services and showed “No stable release yet” for GitHub and “Not listed yet” for F-Droid. Google Dialer remained the default phone app; no calls were placed.
-- Unit tests cover voicemail handoff races and update-source fixtures. `testDebugUnitTest`, `assembleDebug`, `lintDebug`, and `assembleRelease` passed. The release workflow's tag calculation was checked with `v0.1.0`; it produces version name `0.1.0` and version code `1001`.
-- The Asterisk lab has not yet been run. The available Linux hosts are being checked for a safe isolated setup.
+- Moto G57 Power, Android 17 / API 37: debug APK installed and launched; the Updates page reached both live services and showed “No stable release yet” for GitHub and “Not listed yet” for F-Droid. The normal Android default-dialer screen selected OpenCaller, then Google Dialer was restored. No calls were placed.
+- Emulator smoke checks passed on API 26 (Android 8.0), API 34 (Android 14), and API 37 (Android 17). The first cold `am start` timed out on the API 34 and API 37 emulators, but the app process started and a repeat launch succeeded; filtered `AndroidRuntime` logs showed no app crash.
+- The 29 unit tests cover voicemail handoff races and update-source fixtures. `testDebugUnitTest`, `assembleDebug`, `lintDebug`, and `assembleRelease` passed. The release workflow's tag calculation was checked with `v0.1.0`; it produces version name `0.1.0` and version code `1001`.
+- A separate isolated Asterisk 22.12.0 source build was exercised on Debian 13 on 2026-11-22. Baresip 1.0.0 on Linux Mint 22.3 registered extension 1002, called offline extension 1001, saved one synthetic 12.20-second voicemail, and loaded it through the PIN-protected mailbox playback menu. The WAV decoded with FFmpeg. The repository's Docker Compose recipe has not been run on this Windows host. Android SIP pickup, live voicemail handoff, the app inbox, and offline sync remain untested; details are in [the Asterisk lab guide](docs/self-hosted-asterisk.md).
 
 No GitHub stable release or F-Droid listing exists yet, so no APK download or F-Droid install is available. The release APK built locally is unsigned and is not suitable for publishing.
 

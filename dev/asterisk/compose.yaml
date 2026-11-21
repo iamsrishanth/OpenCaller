@@ -1,0 +1,41 @@
+services:
+  asterisk:
+    image: opencaller-asterisk:22.12.0
+    build:
+      context: .
+      args:
+        ASTERISK_VERSION: 22.12.0
+        ASTERISK_SHA256: f8b2ba98aac6c4ff3376bc0a2868bea6ed577ca684efb7ec739ae6e8ce6e35e2
+    env_file:
+      - .env
+    ports:
+      - "${OPENCALLER_BIND_ADDRESS:-127.0.0.1}:5060:5060/udp"
+      - "${OPENCALLER_BIND_ADDRESS:-127.0.0.1}:10000-10100:10000-10100/udp"
+    volumes:
+      - asterisk-spool:/var/spool/asterisk
+      - asterisk-data:/var/lib/asterisk
+    networks:
+      asterisk-lab:
+        ipv4_address: 172.30.0.10
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "asterisk -rx 'core show version' >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  asterisk-spool:
+  asterisk-data:
+
+networks:
+  asterisk-lab:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

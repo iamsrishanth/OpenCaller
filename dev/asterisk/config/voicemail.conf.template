@@ -1,0 +1,15 @@
+[general]
+format = wav
+maxmsg = 30
+maxsecs = 180
+minsecs = 2
+maxgreet = 60
+maxsilence = 10
+silencethreshold = 256
+review = yes
+saycid = no
+attach = no
+
+[opencaller]
+1001 => ${OPENCALLER_VOICEMAIL_PIN_1001},OpenCaller Lab Line 1001,,
+1002 => ${OPENCALLER_VOICEMAIL_PIN_1002},OpenCaller Lab Endpoint 1002,,

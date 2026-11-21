@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+*.wav
+*.mp3
+*.log
+asterisk-spool/
+asterisk-data/

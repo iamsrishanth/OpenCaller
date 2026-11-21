@@ -1,0 +1,66 @@
+[global]
+type = global
+user_agent = OpenCaller Lab Asterisk 22.12.0
+endpoint_identifier_order = username,ip
+
+[transport-udp]
+type = transport
+protocol = udp
+bind = 0.0.0.0:5060
+external_signaling_address = ${OPENCALLER_ADVERTISED_ADDRESS}
+external_media_address = ${OPENCALLER_ADVERTISED_ADDRESS}
+; The container has this stable address. SIP clients on the host/LAN are outside
+; the container interface and should receive the advertised host address above.
+local_net = 172.30.0.10/32
+
+[1001]
+type = endpoint
+context = opencaller-internal
+disallow = all
+allow = ulaw
+auth = auth1001
+aors = 1001
+callerid = OpenCaller Lab 1001 <1001>
+direct_media = no
+rtp_symmetric = yes
+force_rport = yes
+rewrite_contact = yes
+
+[auth1001]
+type = auth
+auth_type = userpass
+username = 1001
+password = ${OPENCALLER_SIP_PASSWORD_1001}
+
+[1001]
+type = aor
+max_contacts = 1
+remove_existing = yes
+qualify_frequency = 30
+mailboxes = 1001@opencaller
+
+[1002]
+type = endpoint
+context = opencaller-internal
+disallow = all
+allow = ulaw
+auth = auth1002
+aors = 1002
+callerid = OpenCaller Lab 1002 <1002>
+direct_media = no
+rtp_symmetric = yes
+force_rport = yes
+rewrite_contact = yes
+
+[auth1002]
+type = auth
+auth_type = userpass
+username = 1002
+password = ${OPENCALLER_SIP_PASSWORD_1002}
+
+[1002]
+type = aor
+max_contacts = 1
+remove_existing = yes
+qualify_frequency = 30
+mailboxes = 1002@opencaller
