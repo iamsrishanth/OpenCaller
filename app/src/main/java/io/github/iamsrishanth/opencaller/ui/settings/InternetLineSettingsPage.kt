@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -141,19 +142,37 @@ fun InternetLineSettingsPage(
 
     val certificatePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            runCatching {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.readLimited(MAX_CA_BYTES + 1)
-                } ?: error("Could not read that certificate file.")
-            }.onSuccess { bytes ->
-                if (bytes.size > MAX_CA_BYTES) {
-                    message = "Choose a certificate bundle smaller than 256 KB."
-                } else {
-                    certificateBytes = bytes
-                    certificateName = uri.lastPathSegment?.substringAfterLast('/') ?: "Selected certificate"
-                    message = null
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                            input.readLimited(MAX_CA_BYTES + 1)
+                        } ?: error("Could not read that certificate file.")
+                        val displayName = context.contentResolver.query(
+                            uri,
+                            arrayOf(OpenableColumns.DISPLAY_NAME),
+                            null,
+                            null,
+                            null,
+                        )?.use { cursor ->
+                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                        }
+                        bytes to displayName
+                    }
                 }
-            }.onFailure { error -> message = error.message ?: "Could not read that certificate file." }
+                result.onSuccess { (bytes, displayName) ->
+                    if (bytes.size > MAX_CA_BYTES) {
+                        message = "Choose a certificate bundle smaller than 256 KB."
+                    } else {
+                        certificateBytes = bytes
+                        certificateName = displayName?.takeIf { it.isNotBlank() } ?: "Selected certificate"
+                        message = null
+                    }
+                }.onFailure { error ->
+                    message = error.message ?: "Could not read that certificate file."
+                }
+            }
         }
     }
 
@@ -210,7 +229,18 @@ fun InternetLineSettingsPage(
                 )
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    onClick = { certificatePicker.launch(arrayOf("application/x-pem-file", "application/pem-certificate-chain", "application/octet-stream", "text/plain")) },
+                    onClick = {
+                        certificatePicker.launch(
+                            arrayOf(
+                                "application/x-pem-file",
+                                "application/pem-certificate-chain",
+                                "application/x-x509-ca-cert",
+                                "application/pkix-cert",
+                                "application/octet-stream",
+                                "text/plain",
+                            ),
+                        )
+                    },
                 ) { Text("Choose trusted server certificate") }
                 Text(certificateName, style = MaterialTheme.typography.bodySmall)
                 Text(

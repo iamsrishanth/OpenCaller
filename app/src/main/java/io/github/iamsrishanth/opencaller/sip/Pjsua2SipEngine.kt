@@ -6,6 +6,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -139,8 +140,10 @@ class Pjsua2SipEngine : Closeable {
     private var greetingCallToken: Long? = null
     private var greetingSink: AudioMedia? = null
     private var callerAudio: AudioMedia? = null
-    private var callerTranscriptPort: AudioMediaPort? = null
+    private var callerTranscriptPort: TranscriptAudioMediaPort? = null
     private var callerTranscriptCallToken: Long? = null
+    /** Detached ports remain alive until PJSIP has finished the associated call's media callbacks. */
+    private val retiredCallerTranscriptPorts = mutableMapOf<Long, MutableList<TranscriptAudioMediaPort>>()
     private var captureMedia: AudioMedia? = null
     private var playbackMedia: AudioMedia? = null
     @Volatile
@@ -409,24 +412,13 @@ class Pjsua2SipEngine : Closeable {
     /** Taps decoded caller audio only. The PJSIP media callback copies frames and never blocks. */
     internal fun startCallerTranscription(callToken: Long, onPcmFrame: (ByteArray) -> Unit): Boolean =
         executeMedia(callToken) {
-            if (micConnected || callerTranscriptPort != null) return@executeMedia false
+            if (micConnected || callerTranscriptPort != null || retiredCallerTranscriptPorts.containsKey(callToken)) {
+                return@executeMedia false
+            }
             val source = callerAudio ?: return@executeMedia false
             val format = MediaFormatAudio()
-            val port = object : AudioMediaPort() {
-                override fun onFrameReceived(frame: MediaFrame) {
-                    runCatching {
-                        val bytes = frame.buf ?: return
-                        val length = minOf(
-                            frame.size.coerceAtLeast(0L).toInt(),
-                            bytes.size,
-                        ).coerceAtMost(MAX_TRANSCRIPT_FRAME_BYTES)
-                        if (length <= 0) return
-                        val copy = ByteArray(length)
-                        for (index in 0 until length) copy[index] = bytes[index].toByte()
-                        onPcmFrame(copy)
-                    }
-                }
-            }
+            val port = TranscriptAudioMediaPort(onPcmFrame)
+            var connectionAttempted = false
             try {
                 format.init(
                     pjmedia_format_id.PJMEDIA_FORMAT_L16.toLong(),
@@ -436,15 +428,17 @@ class Pjsua2SipEngine : Closeable {
                     16,
                 )
                 port.createPort("opencaller-voicemail-transcript", format)
+                connectionAttempted = true
                 if (!performMediaOperation(source, port, connect = true)) {
-                    runCatching { port.delete() }
+                    retireCallerTranscriptPort(callToken, port)
                     return@executeMedia false
                 }
                 callerTranscriptPort = port
                 callerTranscriptCallToken = callToken
                 true
             } catch (_: Exception) {
-                runCatching { port.delete() }
+                if (connectionAttempted) retireCallerTranscriptPort(callToken, port)
+                else runCatching { port.delete() }
                 false
             } finally {
                 format.delete()
@@ -711,10 +705,26 @@ class Pjsua2SipEngine : Closeable {
         } else {
             true
         }
-        val portClosed = runCatching { port.delete() }.isSuccess
+        // PJSIP can still be in AudioMediaPort::onFrameReceived after the disconnect operation
+        // completes. Keep the SWIG callback object alive until the call's media is torn down.
+        port.stopAcceptingFrames()
+        retireCallerTranscriptPort(callToken, port)
         callerTranscriptPort = null
         callerTranscriptCallToken = null
-        return routeClosed && portClosed
+        return routeClosed
+    }
+
+    private fun retireCallerTranscriptPort(callToken: Long, port: TranscriptAudioMediaPort) {
+        port.stopAcceptingFrames()
+        val ports = retiredCallerTranscriptPorts.getOrPut(callToken) { mutableListOf() }
+        if (ports.none { it === port }) ports += port
+    }
+
+    /** Called only once PJSIP reports DISCONNECTED for this call. */
+    private fun releaseRetiredCallerTranscriptPorts(callToken: Long) {
+        retiredCallerTranscriptPorts.remove(callToken).orEmpty().forEach { port ->
+            runCatching { port.delete() }
+        }
     }
 
     private fun completeMediaOperation(param: OnAudioMediaOpCompletedParam) {
@@ -844,6 +854,7 @@ class Pjsua2SipEngine : Closeable {
         }
         dispatchToSipThread {
             stopCallerTranscriptionOnSipThread(call.token)
+            releaseRetiredCallerTranscriptPorts(call.token)
             if (greetingCallToken == call.token) {
                 greetingPlayer?.let { runCatching { it.delete() } }
                 greetingPlayer = null
@@ -932,6 +943,20 @@ class Pjsua2SipEngine : Closeable {
         }
     }
 
+    private fun awaitCallDisconnected(call: EngineCall): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(MEDIA_OPERATION_TIMEOUT_SECONDS)
+        while (System.nanoTime() < deadline) {
+            if (call.infoState() == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED) return true
+            try {
+                Thread.sleep(CALL_DISCONNECT_POLL_MILLIS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+        return call.infoState() == pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED
+    }
+
     private fun dispatchToSipThread(action: () -> Unit) {
         if (closed) return
         runCatching {
@@ -1010,7 +1035,11 @@ class Pjsua2SipEngine : Closeable {
             val acc = account
             val recorder = callerRecorder
             val player = greetingPlayer
-            val transcriptPort = callerTranscriptPort
+            val transcriptPorts = buildList {
+                callerTranscriptPort?.let(::add)
+                retiredCallerTranscriptPorts.values.forEach(::addAll)
+            }.distinct()
+            transcriptPorts.forEach(TranscriptAudioMediaPort::stopAcceptingFrames)
             recordingSessions.values.forEach { it.callerDisconnected = true }
             endpoint = null
             activeCall = null
@@ -1022,24 +1051,34 @@ class Pjsua2SipEngine : Closeable {
             callerAudio = null
             callerTranscriptPort = null
             callerTranscriptCallToken = null
+            retiredCallerTranscriptPorts.clear()
             captureMedia = null
             playbackMedia = null
             micConnected = false
             speakerConnected = false
-            EndpointCleanup(ep, acc, call, recorder, player, transcriptPort)
+            EndpointCleanup(ep, acc, call, recorder, player, transcriptPorts)
         }
 
         // Native teardown may wait for callback threads. Keep this section outside lock so
         // callbacks can observe the cleared endpoint/call state and return without deadlocking.
-        snapshot.call?.let { call ->
+        val callDisconnected = snapshot.call?.let { call ->
             runCatching { hangupCall(call) }
+            val disconnected = awaitCallDisconnected(call)
             runCatching { call.delete() }
+            disconnected
+        } ?: true
+        if (callDisconnected) {
+            snapshot.transcriptPorts.forEach { runCatching { it.delete() } }
         }
         snapshot.recorder?.let { runCatching { it.delete() } }
         snapshot.player?.let { runCatching { it.delete() } }
-        snapshot.transcriptPort?.let { runCatching { it.delete() } }
         snapshot.account?.let { runCatching { it.shutdown() }; runCatching { it.delete() } }
         runCatching { snapshot.endpoint.libDestroy() }
+        // If a call did not report DISCONNECTED in time, libDestroy has now stopped its media
+        // workers and callback dispatch can no longer race port deletion.
+        if (!callDisconnected) {
+            snapshot.transcriptPorts.forEach { runCatching { it.delete() } }
+        }
         runCatching { snapshot.endpoint.delete() }
         synchronized(lock) {
             recordingSessions.clear()
@@ -1080,7 +1119,7 @@ class Pjsua2SipEngine : Closeable {
         val call: EngineCall?,
         val recorder: AudioMediaRecorder?,
         val player: AudioMediaPlayer?,
-        val transcriptPort: AudioMediaPort?,
+        val transcriptPorts: List<TranscriptAudioMediaPort>,
     )
 
     private inner class EngineEndpoint(private val owner: Pjsua2SipEngine) : Endpoint() {
@@ -1107,6 +1146,31 @@ class Pjsua2SipEngine : Closeable {
 
         override fun onEof2() {
             if (eofReported.compareAndSet(false, true)) owner.onGreetingReachedEof(callToken, this)
+        }
+    }
+
+    private class TranscriptAudioMediaPort(
+        private val onPcmFrame: (ByteArray) -> Unit,
+    ) : AudioMediaPort() {
+        private val acceptingFrames = AtomicBoolean(true)
+
+        fun stopAcceptingFrames() {
+            acceptingFrames.set(false)
+        }
+
+        override fun onFrameReceived(frame: MediaFrame) {
+            if (!acceptingFrames.get()) return
+            runCatching {
+                val bytes = frame.buf ?: return
+                val length = minOf(
+                    frame.size.coerceAtLeast(0L).toInt(),
+                    bytes.size,
+                ).coerceAtMost(MAX_TRANSCRIPT_FRAME_BYTES)
+                if (length <= 0 || !acceptingFrames.get()) return
+                val copy = ByteArray(length)
+                for (index in 0 until length) copy[index] = bytes[index].toByte()
+                onPcmFrame(copy)
+            }
         }
     }
 
@@ -1158,6 +1222,7 @@ class Pjsua2SipEngine : Closeable {
         private const val DEFAULT_CAPTURE_DEVICE = -1
         private const val DEFAULT_PLAYBACK_DEVICE = -2
         private const val MEDIA_OPERATION_TIMEOUT_SECONDS = 3L
+        private const val CALL_DISCONNECT_POLL_MILLIS = 20L
         private val SIP_USER_PATTERN = Regex("[+*#A-Za-z0-9._-]+")
         private const val TRANSCRIPT_SAMPLE_RATE = 16_000
         private const val TRANSCRIPT_FRAME_TIME_USEC = 20_000

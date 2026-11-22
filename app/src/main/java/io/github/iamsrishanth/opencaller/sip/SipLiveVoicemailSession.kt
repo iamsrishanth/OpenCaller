@@ -114,9 +114,17 @@ internal class SipLiveVoicemailSession(
                 if (!finalizationStarted.compareAndSet(false, true)) return
                 workerScope.launch(Dispatchers.IO) {
                     runCatching { callMedia.stopCallerTranscription() }
-                    val transcript = runCatching { transcriber?.stopAndCollect() }.getOrNull()
-                        ?.takeIf(String::isNotBlank)
-                        ?: currentTranscript?.takeIf(String::isNotBlank)
+                    val finalTranscript = runCatching { transcriber?.stopAndCollect() }.getOrNull()
+                    val runtimeState = SipCallRuntime.state.value
+                    val runtimeTranscript = runtimeState.liveTranscript.takeIf {
+                        runtimeState.serviceSessionId == serviceSessionId &&
+                            runtimeState.liveTranscriptCallToken == call.token
+                    }
+                    val transcript = selectVoicemailTranscript(
+                        recognizerText = finalTranscript,
+                        sessionText = currentTranscript,
+                        runtimeText = runtimeTranscript,
+                    )
                     val recorderStopped = runCatching { callMedia.stopAndFinalizeRecording() }.getOrDefault(false)
                     var playableMessageId: String? = null
                     if (recorderStopped) {
@@ -166,8 +174,11 @@ internal class SipLiveVoicemailSession(
             val speech = OnDeviceLiveTranscriber(
                 context = appContext,
                 onTranscript = { text ->
-                    currentTranscript = text
-                    SipCallRuntime.publishLiveTranscript(serviceSessionId, call.token, text)
+                    val preserved = preserveLastNonBlankTranscript(currentTranscript, text)
+                    currentTranscript = preserved
+                    if (preserved != null) {
+                        SipCallRuntime.publishLiveTranscript(serviceSessionId, call.token, preserved)
+                    }
                 },
                 onUnavailable = {
                     workerScope.launch(Dispatchers.IO) { callMedia.stopCallerTranscription() }

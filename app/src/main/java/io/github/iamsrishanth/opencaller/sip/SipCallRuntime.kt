@@ -17,6 +17,7 @@ data class SipCallRuntimeState(
     val engine: SipEngineSnapshot = SipEngineSnapshot(),
     val leavingVoicemailCallToken: Long? = null,
     val liveTranscript: String? = null,
+    val liveTranscriptCallToken: Long? = null,
     val liveTranscriptUnavailable: Boolean = false,
     val message: String? = null,
 )
@@ -112,13 +113,15 @@ object SipCallRuntime {
 
     internal fun publishLiveTranscript(serviceSessionId: String, callToken: Long, transcript: String?) = synchronized(lock) {
         val current = mutableState.value
+        val preservedTranscript = preserveLastNonBlankTranscript(current.liveTranscript, transcript)
         if (current.serviceSessionId == serviceSessionId &&
             current.engine.call?.token == callToken &&
             current.leavingVoicemailCallToken == callToken
         ) {
             mutableState.value = current.copy(
-                liveTranscript = transcript?.takeIf(String::isNotBlank),
-                liveTranscriptUnavailable = if (transcript.isNullOrBlank()) current.liveTranscriptUnavailable else false,
+                liveTranscript = preservedTranscript,
+                liveTranscriptCallToken = preservedTranscript?.let { callToken } ?: current.liveTranscriptCallToken,
+                liveTranscriptUnavailable = if (preservedTranscript == null) current.liveTranscriptUnavailable else false,
             )
         }
     }
@@ -147,6 +150,7 @@ object SipCallRuntime {
         mutableState.value = current.copy(
             leavingVoicemailCallToken = callToken,
             liveTranscript = null,
+            liveTranscriptCallToken = callToken,
             liveTranscriptUnavailable = false,
             message = null,
         )
@@ -160,6 +164,7 @@ object SipCallRuntime {
             mutableState.value = current.copy(
                 leavingVoicemailCallToken = null,
                 liveTranscript = null,
+                liveTranscriptCallToken = null,
                 liveTranscriptUnavailable = false,
                 message = null,
             )
