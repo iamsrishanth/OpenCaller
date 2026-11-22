@@ -1,5 +1,10 @@
 package io.github.iamsrishanth.opencaller.ui.call
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +23,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -92,6 +100,21 @@ fun InternetCallScreen(
     val context = LocalContext.current
     val state by SipCallRuntime.state.collectAsState()
     val model = InternetCallUiModel.from(state)
+    var connectAfterLocalNetworkPermission by remember { mutableStateOf(false) }
+    var localNetworkPermissionMessage by remember { mutableStateOf<String?>(null) }
+    val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (connectAfterLocalNetworkPermission) {
+            connectAfterLocalNetworkPermission = false
+            if (granted) {
+                localNetworkPermissionMessage = null
+                SipCallRuntime.connect(context)
+            } else {
+                localNetworkPermissionMessage = "Allow Nearby devices access to connect to your self-hosted line and sync voicemail."
+            }
+        }
+    }
     val answerAction = onAnswer ?: {
         model.call?.let { SipCallRuntime.answer(context, it.token, model.serviceSessionId) }
     }
@@ -104,7 +127,16 @@ fun InternetCallScreen(
     val hangupAction = onHangup ?: {
         model.call?.let { SipCallRuntime.hangup(context, it.token, model.serviceSessionId) }
     }
-    val connectAction = onConnectLine ?: { SipCallRuntime.connect(context) }
+    val connectAction = onConnectLine ?: {
+        if (Build.VERSION.SDK_INT < 37 ||
+            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
+        ) {
+            SipCallRuntime.connect(context)
+        } else {
+            connectAfterLocalNetworkPermission = true
+            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+        }
+    }
     val disconnectAction = onDisconnectLine ?: { SipCallRuntime.disconnect(context) }
 
     Scaffold(modifier = modifier.fillMaxSize()) { contentPadding ->
@@ -205,7 +237,17 @@ fun InternetCallScreen(
                         .testTag("internet.line.state")
                         .semantics { liveRegion = LiveRegionMode.Polite },
                 )
+                if (Build.VERSION.SDK_INT >= 37 &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Text(
+                        "Allow local network access to reach your self-hosted line and sync voicemail.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 model.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                localNetworkPermissionMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (model.registration == SipRegistrationState.REGISTERED) {
                     OutlinedButton(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("internet.line.disconnect"),

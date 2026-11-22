@@ -1,8 +1,13 @@
 package io.github.iamsrishanth.opencaller.ui.voicemail
 
+import android.Manifest
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -106,6 +111,31 @@ fun VoicemailPage(
         }
     }
 
+    var syncAfterLocalNetworkPermission by remember { mutableStateOf(false) }
+    val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (syncAfterLocalNetworkPermission) {
+            syncAfterLocalNetworkPermission = false
+            if (granted) {
+                syncNow()
+            } else {
+                syncMessage = "Allow local network access to sync server voicemail."
+            }
+        }
+    }
+
+    fun requestSync() {
+        if (Build.VERSION.SDK_INT >= 37 &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+        ) {
+            syncAfterLocalNetworkPermission = true
+            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+        } else {
+            syncNow()
+        }
+    }
+
     fun play(message: VoicemailMessage) {
         if (activeMessageId == message.id) {
             val currentPlayer = player ?: return
@@ -174,7 +204,15 @@ fun VoicemailPage(
         }
     }
 
-    LaunchedEffect(syncRepository) { syncNow() }
+    LaunchedEffect(syncRepository) {
+        if (Build.VERSION.SDK_INT >= 37 &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+        ) {
+            syncMessage = "Allow local network access, then tap Sync to check server voicemail."
+        } else {
+            syncNow()
+        }
+    }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { contentPadding ->
         Column(
@@ -189,7 +227,7 @@ fun VoicemailPage(
                 Text("Voicemail", style = MaterialTheme.typography.headlineMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
-                        onClick = { syncNow() },
+                        onClick = { requestSync() },
                         enabled = !syncing,
                         modifier = Modifier.heightIn(min = 48.dp).testTag("voicemail.sync"),
                     ) { Text(if (syncing) "Syncing…" else "Sync") }

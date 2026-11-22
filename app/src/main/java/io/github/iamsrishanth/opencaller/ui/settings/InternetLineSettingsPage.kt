@@ -89,7 +89,32 @@ fun InternetLineSettingsPage(
     var message by remember { mutableStateOf<String?>(null) }
     var isSaving by remember { mutableStateOf(false) }
     var connectAfterNotificationsPermission by remember { mutableStateOf(false) }
+    var connectAfterLocalNetworkPermission by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (connectAfterLocalNetworkPermission) {
+            connectAfterLocalNetworkPermission = false
+            if (granted) {
+                savedLine?.let(onConnect)
+            } else {
+                message = "Allow Nearby devices access to connect to your self-hosted line and sync voicemail."
+            }
+        }
+    }
+
+    fun connectWithLocalNetworkPermission(line: SavedSipLine) {
+        if (Build.VERSION.SDK_INT < 37 ||
+            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
+        ) {
+            onConnect(line)
+        } else {
+            connectAfterLocalNetworkPermission = true
+            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+        }
+    }
 
     val notificationsPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -99,7 +124,7 @@ fun InternetLineSettingsPage(
             if (!granted) {
                 message = "The line will connect, but incoming call alerts may be hidden while OpenCaller is closed."
             }
-            savedLine?.let(onConnect)
+            savedLine?.let(::connectWithLocalNetworkPermission)
         }
     }
 
@@ -112,7 +137,7 @@ fun InternetLineSettingsPage(
             val notificationsGranted = Build.VERSION.SDK_INT < 33 ||
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             if (notificationsGranted) {
-                savedLine?.let(onConnect)
+                savedLine?.let(::connectWithLocalNetworkPermission)
             } else if (Build.VERSION.SDK_INT >= 33) {
                 connectAfterNotificationsPermission = true
                 notificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -128,7 +153,7 @@ fun InternetLineSettingsPage(
         val notificationsGranted = Build.VERSION.SDK_INT < 33 ||
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (notificationsGranted) {
-            onConnect(line)
+            connectWithLocalNetworkPermission(line)
         } else if (Build.VERSION.SDK_INT >= 33) {
             connectAfterNotificationsPermission = true
             notificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -188,6 +213,15 @@ fun InternetLineSettingsPage(
             "Connect to a self-hosted SIP line. Calls use verified TLS signaling and required SRTP audio.",
             style = MaterialTheme.typography.bodyMedium,
         )
+        if (Build.VERSION.SDK_INT >= 37 &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Text(
+                "Android may ask to let OpenCaller access devices on your local network so it can reach this line and sync voicemail.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
