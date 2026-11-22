@@ -5,21 +5,25 @@ OpenCaller is an open-source Android phone app for everyday SIM calling, with an
 ## Current implementation status
 
 - **SIM path:** an accessible T9-style dial pad, `ACTION_DIAL`, a user-triggered default-phone request, SIM call placement through Android Telecom, and an incoming/ongoing `InCallService` screen with capability-gated controls.
-- **Updates:** Settings → About → Updates checks GitHub Releases and the official F-Droid package API independently. It compares numeric Android version codes, preserves each source's last successful result, and keeps optional daily checks off until enabled. Release tags must use `vMAJOR.MINOR.PATCH`; the release workflow builds the APK metadata and attaches `opencaller-update.json`.
-- **Self-hosted server:** `dev/asterisk/` contains a pinned Asterisk lab with two authenticated test extensions and a local voicemail fallback. It is not yet connected to an Android SIP client or the in-app inbox.
-
-The current app does not yet implement an Android SIP line, two-sided recording, live voicemail, server inbox/sync, caller rules, SIM carrier voicemail, contacts, recents, or speech transcription. Do not treat the Asterisk lab as evidence that these app features exist.
+- **Self-hosted internet line:** the optional SIP line uses the pinned PJSIP/Mbed TLS native stack, verified TLS signaling, and SRTP media. SIP credentials and the server voicemail token are encrypted with Android Keystore.
+- **Live voicemail:** incoming internet calls can be sent to a private greeting and tone; only caller media is recorded while the call microphone stays disconnected. The recipient can answer the same call after the recording is finalized. Auto handling supports Off, Selected callers, and All callers with a ring delay. Live transcription is optional and off by default; Android speech-provider support for caller-audio input must be verified on each device because an unsupported provider may open the handset microphone.
+- **Voicemail inbox:** messages are private app files and include unread state, playback, seeking, transcript, callback, deletion, and a recent-call link. A separate authenticated HTTPS reader syncs the configured Asterisk mailbox after reconnecting.
+- **Updates:** Settings → About → Updates checks GitHub Releases and the official F-Droid package API independently. It compares numeric Android version codes, preserves each source's last successful result, and keeps optional daily checks off until enabled. Release tags use `vMAJOR.MINOR.PATCH`; the release workflow attaches `opencaller-update.json` with the built APK's application ID, version code, and version name.
+- **SIM carrier voicemail:** OpenCaller does not expose carrier-specific voicemail controls because no carrier capability has been verified. The voicemail comparison is in [the research note](docs/research/live-voicemail-comparison.md).
 
 ### Verification snapshot
 
 Checked on **2026-11-22**:
 
-- Moto G57 Power, Android 17 / API 37: debug APK installed and launched; the Updates page reached both live services and showed “No stable release yet” for GitHub and “Not listed yet” for F-Droid. The normal Android default-dialer screen selected OpenCaller, then Google Dialer was restored. No calls were placed.
-- Emulator smoke checks passed on API 26 (Android 8.0), API 34 (Android 14), and API 37 (Android 17). The first cold `am start` timed out on the API 34 and API 37 emulators, but the app process started and a repeat launch succeeded; filtered `AndroidRuntime` logs showed no app crash.
-- The 29 unit tests cover voicemail handoff races and update-source fixtures. `testDebugUnitTest`, `assembleDebug`, `lintDebug`, and `assembleRelease` passed. The release workflow's tag calculation was checked with `v0.1.0`; it produces version name `0.1.0` and version code `1001`.
-- A separate isolated Asterisk 22.12.0 source build was exercised on Debian 13 on 2026-11-22. Baresip 1.0.0 on Linux Mint 22.3 registered extension 1002, called offline extension 1001, saved one synthetic 12.20-second voicemail, and loaded it through the PIN-protected mailbox playback menu. The WAV decoded with FFmpeg. The repository's Docker Compose recipe has not been run on this Windows host. Android SIP pickup, live voicemail handoff, the app inbox, and offline sync remain untested; details are in [the Asterisk lab guide](docs/self-hosted-asterisk.md).
+- The pinned Android native library was rebuilt on Zeus from PJSIP 2.17 and Mbed TLS 3.6.8; the arm64 library's LOAD segments are 16 KB aligned.
+- Moto G57 Power, Android 17 / API 37: versions 0.1.2 and 0.1.3 were installed in place with the same signing certificate as the pre-existing app. No saved voicemail was present during those upgrades, so voicemail preservation has not yet been verified.
+- `:app:testDebugUnitTest --rerun-tasks`, `:app:lintDebug`, `:app:assembleDebug`, `:app:assembleDebugAndroidTest`, and `:app:assembleRelease` passed for version 0.1.4 (versionCode 1005). The release APK is unsigned. The three Python HTTPS mailbox tests passed.
+- On the Moto, version 0.1.4 installed over version 0.1.3 without uninstalling. A synthetic voicemail fixture survived the upgrade, decoded and started in `MediaPlayer`, then was removed. The PJSIP native endpoint smoke test also passed on the Moto.
+- A controlled Baresip caller reached Asterisk extension 1001 while it had no registered handset contact. Asterisk saved one new unread synthetic voicemail alongside two older messages. Two HTTPS inbox reads returned the same three IDs, and the downloaded WAV hash matched its metadata. This verifies server-side no-contact fallback and stable listing; the Android reconnection sync is still unverified.
+- Live source checks returned HTTP 404 from GitHub's latest stable release API and the official F-Droid per-app API. The in-app UI has not been checked on the phone yet; fixture tests cover both-source results, newer versions, missing listings, rate limits, and one-source failures.
+- The Moto is currently at its lock screen. The decisive live SIP voicemail handoff, live transcript source isolation, phone-side sync/playback of the staged Asterisk message, and saved real-message upgrade remain unverified. A Galaxy and iPhone were not available, so their behavior is documented from official support pages rather than device-tested.
 
-No GitHub stable release or F-Droid listing exists yet, so no APK download or F-Droid install is available. The release APK built locally is unsigned and is not suitable for publishing.
+No GitHub stable release or F-Droid listing exists yet, so no APK download or F-Droid install is available. The locally built debug APK is signed with the debug key and is not suitable for publishing.
 
 ## Build
 

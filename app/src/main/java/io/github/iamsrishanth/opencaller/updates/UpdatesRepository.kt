@@ -192,12 +192,15 @@ class UpdatesRepository private constructor(
         }
 
         val suggestedCode = packageInfo.suggestedVersionCode?.takeIf { it > 0L }
-        val publishedVersion = if (suggestedCode != null) {
-            packageInfo.packages.firstOrNull { it.versionCode == suggestedCode }
-                ?: PublishedVersion(suggestedCode, null)
-        } else {
-            packageInfo.packages.maxByOrNull(PublishedVersion::versionCode)
-        } ?: throw IOException("F-Droid did not include a numeric version code")
+            ?: return successfulState(
+                source = UpdateSource.FDROID,
+                status = UpdateStatus.CANNOT_COMPARE,
+                checkedAtMillis = checkedAtMillis,
+                sourceUrl = UpdateApiUrls.FDROID_APP_PAGE + applicationId,
+                detail = "F-Droid did not include a suggested version code, so its version could not be compared.",
+            )
+        val publishedVersion = packageInfo.packages.firstOrNull { it.versionCode == suggestedCode }
+            ?: PublishedVersion(suggestedCode, null)
 
         val status = compareVersionCodes(installed.code, publishedVersion.versionCode)
         return successfulState(

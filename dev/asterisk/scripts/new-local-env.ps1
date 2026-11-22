@@ -40,6 +40,7 @@ try {
         "OPENCALLER_SIP_PASSWORD_1002=$(New-LocalSecret 32)"
         "OPENCALLER_VOICEMAIL_PIN_1001=$(New-LocalPin)"
         "OPENCALLER_VOICEMAIL_PIN_1002=$(New-LocalPin)"
+        "OPENCALLER_VOICEMAIL_SYNC_TOKEN_1001=$(New-LocalSecret 32)"
     )
     Set-Content -LiteralPath $envFilePath -Value $lines -Encoding ascii
 }

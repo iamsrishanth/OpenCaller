@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     onBack: () -> Unit,
     onAbout: () -> Unit,
+    onInternetLine: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -35,6 +36,25 @@ fun SettingsScreen(
             Text("Back to dialer")
         }
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Internet line", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Set up a secure self-hosted calling account and voicemail preferences.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = onInternetLine,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) {
+                    Text("Internet line settings")
+                }
+            }
+        }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),

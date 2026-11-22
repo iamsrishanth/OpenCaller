@@ -25,13 +25,29 @@ class UpdatesRepositoryTest {
     }
 
     @Test
-    fun higherGithubCodeIsReportedAsAnUpdate() = runBlocking {
-        val sourceClient = currentSources(githubCode = INSTALLED_CODE + 1)
+    fun githubAheadWhileFdroidIsBehindIsReportedIndependently() = runBlocking {
+        val sourceClient = currentSources(
+            githubCode = INSTALLED_CODE + 1,
+            fdroidCode = INSTALLED_CODE - 1,
+        )
 
         val result = repository(sourceClient = sourceClient).checkForUpdates()
 
         assertEquals(UpdateStatus.UPDATE_AVAILABLE, result.state(UpdateSource.GITHUB).status)
         assertEquals(UpdateStatus.UP_TO_DATE, result.state(UpdateSource.FDROID).status)
+        assertTrue(result.state(UpdateSource.FDROID).detail.orEmpty().contains("installed version is newer"))
+    }
+
+    @Test
+    fun githubAheadRemainsVisibleWhenFdroidIsNotListed() = runBlocking {
+        val sourceClient = currentSources(githubCode = INSTALLED_CODE + 1).apply {
+            fdroidPackage = HttpResult(statusCode = 404)
+        }
+
+        val result = repository(sourceClient = sourceClient).checkForUpdates()
+
+        assertEquals(UpdateStatus.UPDATE_AVAILABLE, result.state(UpdateSource.GITHUB).status)
+        assertEquals(UpdateStatus.NOT_LISTED_YET, result.state(UpdateSource.FDROID).status)
     }
 
     @Test
@@ -62,6 +78,28 @@ class UpdatesRepositoryTest {
     }
 
     @Test
+    fun fdroidWithoutSuggestedVersionCodeCannotBeCompared() = runBlocking {
+        val sourceClient = currentSources().apply {
+            fdroidPackage = HttpResult(
+                statusCode = 200,
+                body = FdroidPackagePayload(
+                    packageName = APP_ID,
+                    suggestedVersionCode = null,
+                    packages = listOf(PublishedVersion(INSTALLED_CODE + 20, "0.2.20")),
+                ),
+            )
+        }
+
+        val result = repository(sourceClient = sourceClient).checkForUpdates()
+        val fdroid = result.state(UpdateSource.FDROID)
+
+        assertEquals(UpdateStatus.CANNOT_COMPARE, fdroid.status)
+        assertEquals(null, fdroid.latestVersionCode)
+        assertTrue(fdroid.detail.orEmpty().contains("suggested version code"))
+        assertEquals("https://f-droid.org/packages/$APP_ID", fdroid.sourceUrl)
+    }
+
+    @Test
     fun missingGithubMetadataKeepsReleaseLinkAndCannotCompareStatus() = runBlocking {
         val sourceClient = currentSources().apply {
             githubRelease = HttpResult(
@@ -74,6 +112,20 @@ class UpdatesRepositoryTest {
 
         assertEquals(UpdateStatus.CANNOT_COMPARE, github.status)
         assertEquals(GITHUB_RELEASE.releaseUrl, github.sourceUrl)
+        assertTrue(github.detail.orEmpty().contains("could not be compared"))
+    }
+
+    @Test
+    fun missingGithubMetadataAssetKeepsReleaseLinkAndCannotCompareStatus() = runBlocking {
+        val sourceClient = currentSources().apply {
+            githubMetadata = HttpResult(statusCode = 404)
+        }
+
+        val github = repository(sourceClient = sourceClient).checkForUpdates().state(UpdateSource.GITHUB)
+
+        assertEquals(UpdateStatus.CANNOT_COMPARE, github.status)
+        assertEquals(GITHUB_RELEASE.releaseUrl, github.sourceUrl)
+        assertEquals(GITHUB_RELEASE.tagName, github.latestVersionName)
         assertTrue(github.detail.orEmpty().contains("could not be compared"))
     }
 
@@ -120,6 +172,21 @@ class UpdatesRepositoryTest {
         assertEquals(PREVIOUS_CHECK, github.lastSuccessfulCheckMillis ?: -1L)
         assertEquals(UpdateStatus.UPDATE_AVAILABLE, fdroid.status)
         assertEquals(UpdateStatus.UPDATE_AVAILABLE, store.readSourceState(UpdateSource.FDROID).status)
+    }
+
+    @Test
+    fun offlineFdroidDoesNotHideGithubUpdateResult() = runBlocking {
+        val store = MemoryUpdateStateStore()
+        val sourceClient = currentSources(githubCode = INSTALLED_CODE + 1).apply {
+            fdroidError = IOException("offline fixture")
+        }
+
+        val result = repository(sourceClient = sourceClient, stateStore = store).checkForUpdates()
+
+        assertEquals(UpdateStatus.UPDATE_AVAILABLE, result.state(UpdateSource.GITHUB).status)
+        assertEquals(INSTALLED_CODE + 1, result.state(UpdateSource.GITHUB).latestVersionCode ?: -1L)
+        assertEquals(UpdateStatus.COULD_NOT_CHECK, result.state(UpdateSource.FDROID).status)
+        assertEquals(UpdateStatus.UPDATE_AVAILABLE, store.readSourceState(UpdateSource.GITHUB).status)
     }
 
     @Test
@@ -221,6 +288,7 @@ class UpdatesRepositoryTest {
         var githubMetadata: HttpResult<GithubUpdateMetadata> = HttpResult(404),
         var fdroidPackage: HttpResult<FdroidPackagePayload>,
         var githubError: Exception? = null,
+        var fdroidError: Exception? = null,
     ) : UpdateSourceClient {
         override suspend fun fetchLatestGithubRelease(): HttpResult<GithubReleasePayload> {
             githubError?.let { throw it }
@@ -230,8 +298,10 @@ class UpdatesRepositoryTest {
         override suspend fun fetchGithubUpdateMetadata(url: String): HttpResult<GithubUpdateMetadata> =
             githubMetadata
 
-        override suspend fun fetchFdroidPackage(packageName: String): HttpResult<FdroidPackagePayload> =
-            fdroidPackage
+        override suspend fun fetchFdroidPackage(packageName: String): HttpResult<FdroidPackagePayload> {
+            fdroidError?.let { throw it }
+            return fdroidPackage
+        }
     }
 
     private class MemoryUpdateStateStore : UpdateStateStore {

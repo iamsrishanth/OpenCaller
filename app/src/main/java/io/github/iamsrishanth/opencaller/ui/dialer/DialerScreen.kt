@@ -63,6 +63,8 @@ fun OpenCallerPhoneScreen(
     activity: ComponentActivity,
     launchIntent: Intent? = activity.intent,
     onOpenSettings: () -> Unit = {},
+    onOpenVoicemail: () -> Unit = {},
+    onOpenRecentCalls: () -> Unit = {},
 ) {
     val callState by CallSession.state.collectAsState()
     if (callState.calls.isNotEmpty()) {
@@ -72,6 +74,8 @@ fun OpenCallerPhoneScreen(
             activity = activity,
             launchIntent = launchIntent,
             onOpenSettings = onOpenSettings,
+            onOpenVoicemail = onOpenVoicemail,
+            onOpenRecentCalls = onOpenRecentCalls,
         )
     }
 }
@@ -83,6 +87,8 @@ fun DialerScreen(
     launchIntent: Intent? = null,
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit = {},
+    onOpenVoicemail: () -> Unit = {},
+    onOpenRecentCalls: () -> Unit = {},
 ) {
     var number by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
@@ -170,6 +176,18 @@ fun DialerScreen(
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.headlineMedium,
                 )
+                TextButton(
+                    onClick = onOpenRecentCalls,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("dialer.recents"),
+                ) {
+                    Text("Recent")
+                }
+                TextButton(
+                    onClick = onOpenVoicemail,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("dialer.voicemail"),
+                ) {
+                    Text("Voicemail")
+                }
                 TextButton(
                     onClick = onOpenSettings,
                     modifier = Modifier.heightIn(min = 48.dp),
