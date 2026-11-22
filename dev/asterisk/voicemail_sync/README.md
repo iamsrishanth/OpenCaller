@@ -22,6 +22,8 @@ OPENCALLER_SYNC_TOKEN_1001=<private token from .env>
 
 Adjust the mailbox path and certificate paths for the host. Run the service as a dedicated unprivileged account that can read the fixed mailbox and certificate key but cannot change Asterisk files. Use systemd filesystem and IP address restrictions to keep access private. The app calls `GET /v1/inbox` and `GET /v1/inbox/{opaque-id}/audio` with TLS certificate validation and bearer authentication.
 
+When the phone is unavailable, Asterisk plays the mailbox's own unavailable greeting. OpenCaller currently keeps its recorded greeting on the phone and does not upload it to Asterisk; record or replace the server greeting with Asterisk's voicemail tools if you want the same wording for offline calls.
+
 Message IDs are derived from Asterisk's original timestamp and the WAV content hash, so moving a message from INBOX to Old does not make it appear twice. OpenCaller commits each downloaded WAV and metadata atomically in private app storage and checks the audio hash before saving. A local deletion is kept suppressed during later syncs; it removes the copy on the phone, while the server mailbox remains available through Asterisk's own voicemail tools.
 
 ## Validate the service
