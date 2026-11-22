@@ -12,9 +12,13 @@ val openCallerVersionCode = providers.gradleProperty("opencallerVersionCode")
     ?.toIntOrNull()
     ?: 1
 val openCallerVersionName = providers.gradleProperty("opencallerVersionName").orNull ?: "0.1.0"
+val openCallerNativeAbi = providers.gradleProperty("opencallerNativeAbi").orNull ?: "arm64-v8a"
 
 if (openCallerVersionCode <= 0) {
     throw GradleException("opencallerVersionCode must be a positive integer")
+}
+if (openCallerNativeAbi !in setOf("arm64-v8a", "x86_64")) {
+    throw GradleException("opencallerNativeAbi must be arm64-v8a or x86_64")
 }
 
 android {
@@ -28,7 +32,7 @@ android {
         versionCode = openCallerVersionCode
         versionName = openCallerVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += openCallerNativeAbi }
     }
 
     ndkVersion = "28.2.13676358"
@@ -94,18 +98,20 @@ val buildPjsipAndroid = tasks.register<Exec>("buildPjsipAndroid") {
     inputs.files(fileTree(rootProject.file("third_party/pjproject")) { exclude("**/.git") })
     inputs.files(fileTree(rootProject.file("third_party/mbedtls")) { exclude("**/.git") })
     inputs.property("androidNdkVersion", pjsipNdkVersion)
-    inputs.property("androidAbi", "arm64-v8a")
+    inputs.property("androidAbi", openCallerNativeAbi)
     outputs.dir(generatedPjsipRoot.map { it.dir("src/main/java") })
     outputs.dir(generatedPjsipRoot.map { it.dir("src/main/jniLibs") })
     environment("ANDROID_NDK_ROOT", pjsipNdkDirectory.absolutePath)
     environment("JAVA_HOME", System.getProperty("java.home"))
-    environment("OPENCALLER_ANDROID_ABI", "arm64-v8a")
+    environment("OPENCALLER_ANDROID_ABI", openCallerNativeAbi)
     environment("PATH", pathEntries.joinToString(File.pathSeparator))
 
     if (usePreparedPjsip) {
-        val preparedLibrary = generatedPjsipRoot.get().file("src/main/jniLibs/arm64-v8a/libpjsua2.so").asFile
+        val preparedLibrary = generatedPjsipRoot.get()
+            .file("src/main/jniLibs/$openCallerNativeAbi/libpjsua2.so")
+            .asFile
         if (!preparedLibrary.isFile) {
-            throw GradleException("opencallerUsePreparedNative=true requires the stable PJSIP library under app/build/generated/pjsip")
+            throw GradleException("opencallerUsePreparedNative=true requires the $openCallerNativeAbi PJSIP library under app/build/generated/pjsip")
         }
         onlyIf { false }
     } else {

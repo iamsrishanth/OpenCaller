@@ -18,6 +18,7 @@ Checked on **2026-11-22**:
 - The pinned Android native library was rebuilt on Zeus from PJSIP 2.17 and Mbed TLS 3.6.8; the arm64 library's LOAD segments are 16 KB aligned.
 - `:app:testDebugUnitTest --rerun-tasks`, `:app:lintDebug`, `:app:assembleDebug`, `:app:assembleDebugAndroidTest`, and `:app:assembleRelease` passed for version 0.1.5 (versionCode 1006). All 47 unit tests passed, including live handoff races, sync retry/deduplication/tombstones, and update-source fixtures. The release APK is unsigned. The three Python HTTPS mailbox tests passed.
 - Moto G57 Power, Android 17 / API 37: version 0.1.5 installed over 0.1.4 without uninstalling; Android kept the original first-install time. A synthetic voicemail saved under 0.1.4 remained in private storage, decoded and started in `MediaPlayer` after the upgrade, then was removed. The PJSIP native endpoint smoke test also passed on the Moto.
+- x86_64 emulator builds passed on API 26, 34, and 37: each installed version 0.1.5, started/stopped the PJSIP native endpoint, and seeded, decoded/played, and removed a synthetic voicemail fixture. The API 37 emulator also opened **Settings → About → Updates** and showed the current GitHub and F-Droid results independently. The ordinary build and release artifact remain arm64 by default; `-PopencallerNativeAbi=x86_64` selects the emulator ABI.
 - A controlled Baresip caller reached Asterisk extension 1001 while it had no registered handset contact. Asterisk saved one new unread synthetic voicemail alongside two older messages. Two HTTPS inbox reads returned the same three IDs, and the downloaded WAV hash matched its metadata. This verifies server-side no-contact fallback and stable listing; the Android reconnection sync is still unverified.
 - Live source checks on 2026-11-22 returned HTTP 404 from GitHub's latest stable release API and the official F-Droid per-app API. The in-app UI has not been checked on the phone yet; fixture tests cover both-source results, newer versions, missing listings, rate limits, and one-source failures.
 - Zeus Asterisk is running on the LAN and the HTTPS mailbox port responds with HTTP 401 when no token is supplied. A controlled Baresip call previously left one unread test message while extension 1001 had no handset registered. Phone-side authenticated sync/playback of that staged server message remains unverified.
@@ -38,6 +39,8 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. To run 
 ```powershell
 ./gradlew.bat testDebugUnitTest lintDebug
 ```
+
+Builds use `arm64-v8a` by default. For an x86_64 emulator, pass `-PopencallerNativeAbi=x86_64`; the same pinned PJSIP and Mbed TLS source build is used for that ABI.
 
 The stable release workflow derives Android version values from the release tag. For a local release build, pass the corresponding `opencallerVersionName` and `opencallerVersionCode` Gradle properties.
 
