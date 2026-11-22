@@ -34,18 +34,36 @@ internal data class RemoteVoicemail(
     val unread: Boolean,
 )
 
+internal interface VoicemailSyncClient {
+    fun listInbox(): List<RemoteVoicemail>
+    fun downloadAudio(message: RemoteVoicemail, destination: File): Boolean
+}
+
 /** Fetches only the fixed, token-authorized mailbox configured on the encrypted SIP line. */
 class VoicemailSyncRepository(context: Context) {
     private val appContext = context.applicationContext
 
     fun isConfigured(): Boolean = SipLineConfigStore(appContext).load()?.config?.voicemailSyncToken != null
 
+    suspend fun synchronize(): Int = withContext(Dispatchers.IO) {
+        val line = SipLineConfigStore(appContext).load()?.config ?: return@withContext 0
+        val token = line.voicemailSyncToken ?: return@withContext 0
+        val local = VoicemailRepository(File(appContext.filesDir, VOICEMAIL_DIRECTORY))
+        VoicemailSyncCoordinator(local, HttpsVoicemailSyncClient(line, token)).synchronize()
+    }
+
+    private companion object {
+        const val VOICEMAIL_DIRECTORY = "voicemail"
+    }
+}
+
+/** Idempotently copies one account's server messages into the private local voicemail store. */
+internal class VoicemailSyncCoordinator(
+    private val local: VoicemailRepository,
+    private val client: VoicemailSyncClient,
+) {
     suspend fun synchronize(): Int = synchronizationMutex.withLock {
         withContext(Dispatchers.IO) {
-            val line = SipLineConfigStore(appContext).load()?.config ?: return@withContext 0
-            val token = line.voicemailSyncToken ?: return@withContext 0
-            val local = VoicemailRepository(File(appContext.filesDir, VOICEMAIL_DIRECTORY))
-            val client = HttpsVoicemailSyncClient(line, token)
             var added = 0
             client.listInbox().forEach { remote ->
                 if (local.isServerMessageSuppressed(remote.id)) return@forEach
@@ -82,7 +100,6 @@ class VoicemailSyncRepository(context: Context) {
     }
 
     private companion object {
-        const val VOICEMAIL_DIRECTORY = "voicemail"
         val synchronizationMutex = Mutex()
     }
 }
@@ -90,10 +107,10 @@ class VoicemailSyncRepository(context: Context) {
 private class HttpsVoicemailSyncClient(
     private val line: SipLineConfig,
     private val token: String,
-) {
+) : VoicemailSyncClient {
     private val sslSocketFactory by lazy { createSslSocketFactory(File(line.caPath)) }
 
-    fun listInbox(): List<RemoteVoicemail> {
+    override fun listInbox(): List<RemoteVoicemail> {
         val response = request("/v1/inbox", "application/json")
         val status = response.responseCode
         if (status != HttpURLConnection.HTTP_OK) {
@@ -123,7 +140,7 @@ private class HttpsVoicemailSyncClient(
         }
     }
 
-    fun downloadAudio(message: RemoteVoicemail, destination: File): Boolean {
+    override fun downloadAudio(message: RemoteVoicemail, destination: File): Boolean {
         val connection = request("/v1/inbox/${Uri.encode(message.id)}/audio", "audio/wav")
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return false

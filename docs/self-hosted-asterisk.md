@@ -7,7 +7,7 @@ This is a local SIP lab for trying calls and server-side voicemail before connec
 
 The dialplan lets the extensions call each other. If 1001 is offline or does not answer within 20 seconds, Asterisk sends the caller to mailbox 1001. The voicemail and credentials stay on the contributor's machine. No account with a calling provider or paid number is needed for extension-to-extension tests.
 
-The Android app is still at its initial build milestone. It does not yet have a SIP line setup screen, recording controls, voicemail inbox, or app-managed **Off / Selected callers / All callers** rules. This lab provides a fixed 20-second fallback for 1001 and Asterisk's local mailbox menu; it does not provide the future app-to-server inbox or settings API.
+OpenCaller now has a TLS-only SIP line setup screen, internet-call controls, voicemail settings, and a private voicemail inbox. The Docker Compose recipe below is still UDP-only and does not configure the TLS/SRTP transport or HTTPS sync reader required by the app. Use it to test Asterisk with another SIP softphone and its server-side voicemail; use a separately secured Asterisk configuration to connect OpenCaller.
 
 ## Start the lab
 
@@ -47,7 +47,7 @@ Use any SIP softphone that supports authenticated UDP registration and the G.711
 
 Use the address given in the next section. When both clients show as registered, call `1002` from `1001`, then call `1001` from `1002`. Calls between the extensions stay on this Asterisk instance.
 
-The current OpenCaller build has no line-entry screen yet. When that UI is available, add the test line with the same server address, port `5060`, UDP transport, user `1001`, and the generated `OPENCALLER_SIP_PASSWORD_1001`. The second test account remains `1002` in another softphone. Do not use the example placeholders as passwords.
+The current OpenCaller app does not connect to this UDP-only Compose profile. Its Internet line settings require a TLS SIP port, a trusted CA certificate, and SRTP-capable media. The second test account can remain in a softphone using the UDP settings above. Do not use the example placeholders as passwords.
 
 ## Connect a phone on your local network
 
@@ -90,7 +90,7 @@ docker compose exec asterisk asterisk -rx 'pjsip show endpoint 1001'
 docker compose logs -f asterisk
 ```
 
-The mailbox test uses Asterisk's PIN-protected `VoiceMailMain()` menu. A future OpenCaller inbox must use an authenticated, account-scoped service API rather than exposing the Asterisk spool directory.
+The mailbox test uses Asterisk's PIN-protected `VoiceMailMain()` menu. To sync messages into OpenCaller, configure the separate authenticated HTTPS reader documented in [`dev/asterisk/voicemail_sync/README.md`](../dev/asterisk/voicemail_sync/README.md). The Compose recipe above does not start that reader; never expose the Asterisk spool directory or management interfaces directly to the phone.
 
 ### Server-only verification (2026-11-22)
 
